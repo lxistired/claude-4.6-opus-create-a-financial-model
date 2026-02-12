@@ -1,16 +1,16 @@
 # 项目开发过程文档（谷歌财务模型）
 
 ## 1. 目标与范围
-- 目标：基于**最近 4 年年报**（2022–2025 年 10-K），叠加网络公开信息，快速形成一个可解释、可复用的谷歌估值模型。
+- 目标：基于你提供的年报，叠加网络公开信息，快速形成一个可解释、可复用的谷歌估值模型。
 - 范围：先完成一版“公司整体 DCF”，暂不做复杂三表联动和分部联动。
 
 ## 2. 执行过程
-1. 读取并定位年报关键章节（2022、2023、2024、2025 年 10-K）：
+1. 读取并定位年报关键章节：
    - 合并利润表
    - 合并现金流量表
    - 资产负债表
    - 分部信息（Google Services / Cloud / Other Bets）
-2. 提取 2022–2025 历史数据并计算核心比率（增长率、利润率、现金流率）。
+2. 提取 2023-2025 历史数据并计算核心比率（增长率、利润率、现金流率）。
 3. 联网检索宏观锚点：
    - 10Y 美债收益率（用于 Rf）
    - 美联储 2% 通胀长期目标（用于终值增长逻辑）
@@ -60,7 +60,7 @@
 - 关键改进：
   1. **新增 Segment_PL tab**：Google Services / Cloud 各自拆出 Employee Comp + Other Costs（数据来自年报 Note 15）；Other Bets 用 OI margin 反推；Alphabet-level unallocated 单列
   2. **交叉验证行**：Segment_PL 中「Sum of Segment OI」与 Consolidated_PL 中「EBIT」比对，差异应=0
-  3. **假设全面历史锚点**：Assumptions tab 每个参数都显示 2022A–2025A 历史值（灰色列）
+  3. **假设全面历史锚点**：Assumptions tab 每个参数都显示 2023A/2024A/2025A 历史值（灰色列）
   4. **CapEx 绝对值**：2026 使用管理层 Q4'25 earnings call 指引 $175B-$185B（中值 $180B），而非 % of revenue
   5. **术语脚注**：每个 Tab 底部添加 Glossary，解释所有缩写（TAC/COGS/SBC/UFCF/WACC/NOPAT/EV/D&A/OI&E/NWC/Ke/Kd）中英文对照
   6. **三情景 CHOOSE 增强**：Revenue Growth 拆为 Base/Bull/Bear 三个独立区块
@@ -103,3 +103,89 @@
 - Executive Summary (Key_Summary) 对决策者非常重要，投行 pitchbook 通常以此开头
 - BS 的 plug 项(Cash) 是保证资产=负债+权益恒等的关键技巧
 - 营运资金(WC)变动应从 BS 逐项推导而非笼统假设
+
+---
+
+## 第五次迭代（真正的三表联动 — 修复 Cash 负数问题）
+
+### 用户反馈
+BS 中 Cash 科目出现负数（约 -$49B），这在经济上不可能。
+
+### 根因分析（6 个错误）
+1. **致命：LT Debt 锁死** — 所有预测年度 LT Debt 固定在 2025 年末 $46.5B，无新增融资机制
+2. **致命：MktSec 反向增长** — 以 5%/年增长（占用 BS 空间），实际 CapEx 高峰期应消耗或平稳
+3. **严重：NonMktSec 从异常基数高增长** — 2025 含 $24B 一次性估值调增，从此基数继续 15% 增长
+4. **结构性：CF 与 BS 断联** — Cash = plug(L+E-其他资产)而非来自 CF，CF 和 BS 相互矛盾
+5. **中等：CF 部分 WC 项目为 placeholder 0** — ChgAccComp、ChgOtherCA 未链接 BS
+6. **中等：CF 缺少 StockNet / Net Debt 等真实现金流**
+
+### 核心修复：真正的三表联动
+
+**设计原则**：BS 上每个科目的年度变动，都必须有一个对应的 CF 条目（符号相反）。
+
+**数据流（修复后）**：
+```
+P&L → NI → CF(CFO) → Ending Cash → BS(Cash)
+                                     ↓
+                              BS Balance Check = 0
+                              (证明三表完美联动)
+```
+
+### Assumptions 新增
+1. `MktSec Growth` (row 92): Base=0% (CapEx 高峰期保持平稳)
+2. `StockNet Settlement % of SBC` (row 93): Base=55% (RSU 税代扣比例)
+3. `Net Debt Issuance` (rows 97-101): 每年独立行，Base case: 2026=$60B → 2030=-$20B
+4. `NonMktSec 增速` 从 15% 降至 5% (正常化)
+
+### BS 修改
+- **Cash = Cash_Flow!Ending_Cash** (不再是 plug！)
+- **MktSec**: 增长率链接 Assumptions!$I$92 (Base=0%)
+- **LT Debt = Prior + Net Debt Issuance** (动态融资)
+- **Equity**: SBC 净权益贡献 = SBC × (1-Assumptions!$I$93)
+
+### CF 完整重写（全部链接 BS 变动）
+**CFO 新增项**:
+- Deferred Tax 调整 = -Δ(BS!DeferredTax)
+- OpLease 净调整 = Δ(BS!OpLeaseLiab) - Δ(BS!OpLeaseAsset)
+- LT Tax Payable 变动 = Δ(BS!TaxNC)
+- Other LT Liab 变动 = Δ(BS!OtherLTL)
+- Securities G/L + Other (forecast=0)
+- WC: 新增 ΔAccComp, 修复 ΔOtherCA (原为 placeholder 0)
+
+**CFI 新增项**:
+- Δ NonMktSec (投资流出)
+- Δ Goodwill (收购)
+- Δ OtherNCA
+- Net MktSec Activity (Base=0 因 MktSec 平稳)
+
+**CFF 新增项**:
+- Stock Net Settlement = -SBC × 结算率
+- Net Debt Issuance = Assumptions 融资计划
+
+**Cash Reconciliation 区**:
+- Net Change = CFO + CFI + CFF
+- Beginning Cash = 上期末现金
+- **Ending Cash = Beginning + Net Change** → 链接至 BS!Cash
+- BS Balance Check (Assets - L&E) 应为 0
+
+### 数值验证（2026E Base Case）
+| 指标 | 修复前 | 修复后 |
+|------|--------|--------|
+| Cash | **-$49B** | **+$21.2B** |
+| BS Balance Check | 0 (plug) | **0.00 (联动)** |
+| CFO | ~$190B | $190.4B |
+| CFI | - | -$184.6B |
+| CFF | - | -$15.3B |
+| LT Debt | $46.5B (固定) | $106.5B (含新融资$60B) |
+| MktSec | ~$101B (增长) | $96.1B (平稳) |
+
+### 联动验证原理
+> BS 上每个非现金科目的 ΔBS_item，在 CF 中都有一个 ±ΔBS_item 对应。
+> 因此 ΔCash(from CF) = Σ(所有 CF 项) = Δ(L+E) - Δ(非现金资产)
+> 即 Cash(from CF) + 非现金资产 = L + E → **Balance Check = 0**
+
+### 教训
+- **Cash 不应作为 plug** — 正确的三表联动中，Cash 必须来自 CF Ending Cash，BS Balance Check 是联动正确性的证明
+- **高 CapEx 场景必须建模融资来源** — 当 CapEx > FCF 时，必须有债务融资或资产变现
+- **Equity 中的 SBC 处理必须与 CF 一致** — SBC 净权益效应 = SBC × (1-结算率)，CF 中 +SBC(加回) -StockNet(结算现金流出)
+- **每个 BS 变动必须有 CF 对应** — 这是三表联动的数学充要条件

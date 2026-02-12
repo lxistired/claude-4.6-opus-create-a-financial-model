@@ -430,10 +430,28 @@ def build():
     arow(ws, 88, "RevShare 应计收入分成 (% Ad Rev)", .037, .037, .037, .036, .035, .038, NP, "广告收入分成应计")
     arow(ws, 89, "DefRev 递延收入增速 %", None, .261, .306, .15, .18, .12, NP, "Cloud预付合同增长")
     arow(ws, 90, "OpLease 经营租赁资产增速 %", None, -.047, .120, .05, .06, .03, NP, "办公/数据中心租赁")
-    arow(ws, 91, "NonMktSec 非上市证券增速 %", None, .225, .808, .15, .20, .10, NP, "2025因估值调增大幅增长")
+    arow(ws, 91, "NonMktSec 非上市证券增速 %", None, .225, .808, .05, .08, .03, NP, "2025含$24B估值调增(一次性),正常化后温和增长")
+    arow(ws, 92, "MktSec Growth 有价证券增速 %", None, -.169, .332, 0, 0.02, -0.03, NP, "CapEx高峰期保持平稳,不主动增持")
+    arow(ws, 93, "StockNet Settlement % of SBC 净结算比例", .438, .535, .568, 0.55, 0.52, 0.58, NP, "RSU净结算/税代扣占SBC比例")
+
+    # ── Debt & Financing ──
+    sec(ws, 95, "Debt & Financing 债务融资 (Net Issuance, USD mm)")
+    for i, h in enumerate(["Year", "2023A", "2024A", "2025A", "", "Base", "Bull", "Bear", "Selected", "", "Notes"]):
+        c = ws.cell(row=96, column=1+i, value=h); c.font = FW; c.fill = HDR; c.alignment = CT; c.border = BD
+    debt_data = [
+        (97,  "2026E Net Debt Issuance 净融资", -760, 888, 32137, 60000, 55000, 65000, "CapEx高峰需大量融资,参照2025发债$65B"),
+        (98,  "2027E Net Debt Issuance", None, None, None, 25000, 20000, 30000, "CapEx缓降,融资需求下降"),
+        (99,  "2028E Net Debt Issuance", None, None, None, 10000, 5000, 15000, "接近自给自足"),
+        (100, "2029E Net Debt Issuance", None, None, None, -10000, -15000, 0, "开始偿债"),
+        (101, "2030E Net Debt Issuance", None, None, None, -20000, -25000, -10000, "积极去杠杆"),
+    ]
+    debt_rows = []
+    for r_num, label, h23, h24, h25, base, bull, bear, nt in debt_data:
+        arow(ws, r_num, label, h23, h24, h25, base, bull, bear, NI, nt)
+        debt_rows.append(r_num)
 
     ws.freeze_panes = "B5"
-    add_legend(ws, 95)
+    add_legend(ws, 105)
 
     # ═══════════════════════════════════════════════════
     #  TAB 4: SEGMENT REVENUE
@@ -991,10 +1009,10 @@ def build():
     # Other current: ~4% of revenue
     for c in range(5, 10):
         fval(ws, bs_rows["OtherCA"], c, f"=Consolidated_PL!{CL(c)}{rev_pl}*0.04")
-    # Marketable securities: grow 5% per year
+    # Marketable securities: grow per assumption (Base=0% flat to preserve liquidity)
     for c in range(5, 10):
         prev = "D" if c == 5 else CL(c-1)
-        fval(ws, bs_rows["MktSec"], c, f"={prev}{bs_rows['MktSec']}*1.05")
+        fval(ws, bs_rows["MktSec"], c, f"={prev}{bs_rows['MktSec']}*(1+Assumptions!$I$92)")
     # Cash: will be filled as plug later
     # Cash Total
     for c in range(5, 10):
@@ -1115,8 +1133,10 @@ def build():
         r += 1
 
     # Forecast NCL
+    for yr_j in range(5):
+        c = 5 + yr_j; prev = "D" if yr_j == 0 else CL(c-1)
+        fval(ws, bs_rows["LTDebt"], c, f"={prev}{bs_rows['LTDebt']}+Assumptions!$I${debt_rows[yr_j]}")
     for c in range(5, 10):
-        fval(ws, bs_rows["LTDebt"], c, f"=Assumptions!$I$22")  # from assumption
         prev = "D" if c == 5 else CL(c-1)
         fval(ws, bs_rows["TaxNC"], c, f"={prev}{bs_rows['TaxNC']}*1.03")
         fval(ws, bs_rows["OpLeaseLiab"], c, f"={CL(c)}{bs_rows['OpLeaseAsset']}*0.84")  # ~84% of ROU
@@ -1142,15 +1162,15 @@ def build():
     ws.cell(row=r, column=1, value="Total Equity 股东权益合计").font = FB; sb(ws, r, 1, r, 9, fill=KEY, font=FB)
     for j, v in enumerate(BS_DATA["Equity"]):
         hval(ws, r, 2+j, v)
-    # Equity forecast: prior + NI - Buyback - Dividends + SBC (net of tax withholding)
+    # Equity forecast: prior + NI - Buyback - Dividends + SBC × (1 - settlement rate)
     for c in range(5, 10):
         prev = "D" if c == 5 else CL(c-1)
         fval(ws, r, c,
              f"={prev}{equity_r}+Consolidated_PL!{CL(c)}{ni_pl}"
              f"-Assumptions!$I$79"
              f"-Assumptions!$I$80*Consolidated_PL!{CL(c)}{R['shares_pl']}"
-             f"+Consolidated_PL!{CL(c)}{sbc_pl}*0.5")  # net of tax withholding ~50%
-    note(ws, r, "=Prior+NI-Buyback-Div+SBC(net)")
+             f"+Consolidated_PL!{CL(c)}{sbc_pl}*(1-Assumptions!$I$93)")
+    note(ws, r, "=Prior+NI-Buyback-Div+SBC×(1-结算率)")
     R["equity"] = equity_r
     r += 2
 
@@ -1170,157 +1190,274 @@ def build():
     sb(ws, chk_r, 1, chk_r, 9, fill=ERR, font=FB)
     note(ws, chk_r, "应为0 (Cash为plug项)")
 
-    # Now fill Cash as plug: Cash = Total L&E - (all other assets)
-    # Actually simpler: Cash = Total Equity + Total Liabilities - NCA - (AR + OtherCA + MktSec)
-    for c in range(5, 10):
-        fval(ws, bs_rows["Cash"], c,
-             f"={CL(c)}{equity_r}+{CL(c)}{total_liab_r}-{CL(c)}{total_nca_r}"
-             f"-{CL(c)}{bs_rows['MktSec']}-{CL(c)}{bs_rows['AR']}-{CL(c)}{bs_rows['OtherCA']}")
+    # Cash will be linked from Cash_Flow!Ending_Cash after CF tab is built
+    # (replaces old plug approach — proper 3-statement linkage)
 
     ws.freeze_panes = "B4"
     add_legend(ws, r + 3)
 
     # ═══════════════════════════════════════════════════
-    #  TAB 8: CASH FLOW (Enhanced with WC detail)
+    #  TAB 8: CASH FLOW (Complete 3-statement linkage)
+    #  Every BS change → CF entry → Ending Cash → BS Cash
     # ═══════════════════════════════════════════════════
     ws = wb.create_sheet("Cash_Flow")
     ws["A1"] = "Cash Flow Statement 现金流量表 (USD mm)"; ws["A1"].font = FT
-    ws["A2"] = "Source: 10-K pp.51-52"; ws["A2"].font = FSM
+    ws["A2"] = "三表联动: Ending Cash → BS!Cash | Source: 10-K pp.51-52"; ws["A2"].font = FSM
     cw(ws, {CL(c): (44 if c == 1 else (38 if c == NCOL else 15)) for c in range(1, NCOL+1)})
     yh(ws, 3)
 
     r = 5
     sec(ws, r, "Operating Activities 经营活动现金流"); r += 1
+    cf_op_rows = []
 
-    cf_items_op = [
-        ("Net Income 净利润", CF["NI"], f"Consolidated_PL!{{c}}{ni_pl}", "链接自Consolidated_PL"),
-        ("(+) D&A 折旧与摊销", CF["DA"], f"Consolidated_PL!{{c}}{da_pl}", "非现金项目加回"),
-        ("(+) SBC 股权激励", CF["SBC"], f"Consolidated_PL!{{c}}{sbc_pl}", "非现金项目加回"),
-        ("Deferred Tax 递延所得税", CF["DeferredTax"], None, "递延税项变动"),
-        ("(Gain)/Loss on Securities 证券损益", CF["SecGL"], None, "非现金投资损益"),
-        ("Other Adjustments 其他调整", CF["Other"], None, "其他非现金项目"),
+    # Net Income
+    ni_cf = r
+    ws.cell(row=r, column=1, value="Net Income 净利润").font = FB; ws.cell(row=r, column=1).border = BD
+    for j, v in enumerate(CF["NI"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10): lval(ws, r, c, f"=Consolidated_PL!{CL(c)}{ni_pl}")
+    cf_op_rows.append(r); note(ws, r, "链接自Consolidated_PL"); r += 1
+
+    # D&A
+    da_cf = r
+    ws.cell(row=r, column=1, value="(+) D&A 折旧与摊销").font = FN; ws.cell(row=r, column=1).border = BD
+    for j, v in enumerate(CF["DA"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10): lval(ws, r, c, f"=Consolidated_PL!{CL(c)}{da_pl}")
+    cf_op_rows.append(r); note(ws, r, "非现金项目加回"); r += 1
+
+    # SBC
+    sbc_cf = r
+    ws.cell(row=r, column=1, value="(+) SBC 股权激励").font = FN; ws.cell(row=r, column=1).border = BD
+    for j, v in enumerate(CF["SBC"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10): lval(ws, r, c, f"=Consolidated_PL!{CL(c)}{sbc_pl}")
+    cf_op_rows.append(r); note(ws, r, "非现金项目加回"); r += 1
+
+    # ── Non-cash & other adjustments (linked to BS deltas) ──
+    sec(ws, r, "Non-cash & Accrual Adjustments 非现金及应计调整"); r += 1
+
+    # Deferred Tax: DTA decrease = cash source → -(current - prior)
+    ws.cell(row=r, column=1, value="Deferred Tax 递延所得税").font = FN; ws.cell(row=r, column=1).border = BD
+    for j, v in enumerate(CF["DeferredTax"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"=-(BS!{CL(c)}{bs_rows['DeferredTax']}-BS!{prev}{bs_rows['DeferredTax']})")
+    cf_op_rows.append(r); note(ws, r, "DTA减少=现金来源(链接BS)"); r += 1
+
+    # OpLease net: ΔLiab - ΔAsset (non-cash amortization offset)
+    ws.cell(row=r, column=1, value="OpLease Net Adj 经营租赁净调整").font = FN; ws.cell(row=r, column=1).border = BD
+    for j in range(3): hval(ws, r, 2+j, 0)  # included in "Other" historically
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"=(BS!{CL(c)}{bs_rows['OpLeaseLiab']}-BS!{prev}{bs_rows['OpLeaseLiab']})"
+                        f"-(BS!{CL(c)}{bs_rows['OpLeaseAsset']}-BS!{prev}{bs_rows['OpLeaseAsset']})")
+    cf_op_rows.append(r); note(ws, r, "=Δ租赁负债-Δ租赁资产"); r += 1
+
+    # TaxNC change: increase in LT tax liability = cash source
+    ws.cell(row=r, column=1, value="LT Tax Payable Chg 长期应交税").font = FN; ws.cell(row=r, column=1).border = BD
+    for j in range(3): hval(ws, r, 2+j, 0)
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"=BS!{CL(c)}{bs_rows['TaxNC']}-BS!{prev}{bs_rows['TaxNC']}")
+    cf_op_rows.append(r); note(ws, r, "长期税负增加=现金来源"); r += 1
+
+    # OtherLTL change
+    ws.cell(row=r, column=1, value="Other LT Liab Chg 其他长期负债").font = FN; ws.cell(row=r, column=1).border = BD
+    for j in range(3): hval(ws, r, 2+j, 0)
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"=BS!{CL(c)}{bs_rows['OtherLTL']}-BS!{prev}{bs_rows['OtherLTL']}")
+    cf_op_rows.append(r); note(ws, r, "其他长期负债变动"); r += 1
+
+    # Securities G/L + Other (historical only, 0 for forecast)
+    ws.cell(row=r, column=1, value="Securities G/L + Other 证券损益+其他").font = FN; ws.cell(row=r, column=1).border = BD
+    for j, v in enumerate([CF["SecGL"][j] + CF["Other"][j] for j in range(3)]):
+        hval(ws, r, 2+j, v)
+    for c in range(5, 10): fval(ws, r, c, 0)
+    cf_op_rows.append(r); note(ws, r, "2025含$24.6B证券损益(一次性)"); r += 1
+
+    # ── Working Capital Changes (all linked to BS deltas) ──
+    sec(ws, r, "Working Capital Changes 营运资金变动 (→ BS)"); r += 1
+
+    wc_specs = [
+        ("  Chg AR 应收变动",          CF["ChgAR"],      "AR",      True,  "应收增加=现金流出"),
+        ("  Chg AccComp 应计薪酬变动",  [0,0,0],          "AccComp", False, "薪酬负债增加=现金留存(历史含在AccExp中)"),
+        ("  Chg OtherCA 其他流动资产",  CF["ChgOtherA"],  "OtherCA", True,  "其他流动资产增加=现金流出"),
+        ("  Chg AP 应付变动",          CF["ChgAP"],       "AP",      False, "应付增加=现金留存"),
+        ("  Chg AccExp 应计费用变动",   CF["ChgAccExp"],   "AccExp",  False, "运营应计增加=现金留存"),
+        ("  Chg RevShare 收入分成变动", CF["ChgRevShare"], "RevShare", False, "分成负债增加=现金留存"),
+        ("  Chg DefRev 递延收入变动",   CF["ChgDefRev"],   "DefRev",  False, "预收增加=现金留存"),
     ]
-    cf_rows = {}
-    for name, hist, tmpl, nt in cf_items_op:
-        ws.cell(row=r, column=1, value=name).font = FN; ws.cell(row=r, column=1).border = BD
-        for j, v in enumerate(hist):
-            hval(ws, r, 2+j, v)
+    for label, hist, bs_key, is_asset, nt in wc_specs:
+        ws.cell(row=r, column=1, value=label).font = FN; ws.cell(row=r, column=1).border = BD
+        for j, v in enumerate(hist): hval(ws, r, 2+j, v)
         for c in range(5, 10):
-            if tmpl:
-                lval(ws, r, c, f"={tmpl.format(c=CL(c))}")
-            else:
-                fval(ws, r, c, 0)
-        cf_rows[name] = r
-        note(ws, r, nt)
-        r += 1
+            prev = "D" if c == 5 else CL(c-1)
+            sign = "-" if is_asset else ""
+            fval(ws, r, c, f"={sign}(BS!{CL(c)}{bs_rows[bs_key]}-BS!{prev}{bs_rows[bs_key]})")
+        cf_op_rows.append(r); note(ws, r, nt); r += 1
 
-    # Working Capital changes
-    sec(ws, r, "Working Capital Changes 营运资金变动"); r += 1
-    wc_items = [
-        ("  Chg in AR 应收变动", CF["ChgAR"], "ChgAR", "应收增加为负"),
-        ("  Chg in Tax 应交税变动", CF["ChgTaxNet"], "ChgTax", ""),
-        ("  Chg in Other Assets 其他资产变动", CF["ChgOtherA"], "ChgOA", ""),
-        ("  Chg in AP 应付变动", CF["ChgAP"], "ChgAP", "应付增加为正"),
-        ("  Chg in Accrued Expenses 应计费用变动", CF["ChgAccExp"], "ChgAcc", ""),
-        ("  Chg in Revenue Share 收入分成变动", CF["ChgRevShare"], "ChgRS", ""),
-        ("  Chg in Deferred Revenue 递延收入变动", CF["ChgDefRev"], "ChgDR", ""),
-    ]
-    wc_rows = []
-    for name, hist, key, nt in wc_items:
-        ws.cell(row=r, column=1, value=name).font = FN; ws.cell(row=r, column=1).border = BD
-        for j, v in enumerate(hist):
-            hval(ws, r, 2+j, v)
-        # For forecast: link to BS changes
-        for c in range(5, 10):
-            fval(ws, r, c, 0)  # placeholder, we'll set formulas below
-        wc_rows.append(r)
-        cf_rows[key] = r
-        note(ws, r, nt)
-        r += 1
-
-    # Set WC formulas linking to BS changes
-    # ChgAR: -(current AR - prior AR)
-    for c in range(5, 10):
-        prev = "D" if c == 5 else CL(c-1)
-        fval(ws, cf_rows["ChgAR"], c, f"=-(BS!{CL(c)}{bs_rows['AR']}-BS!{prev}{bs_rows['AR']})")
-    # ChgAP: current AP - prior AP
-    for c in range(5, 10):
-        prev = "D" if c == 5 else CL(c-1)
-        fval(ws, cf_rows["ChgAP"], c, f"=BS!{CL(c)}{bs_rows['AP']}-BS!{prev}{bs_rows['AP']}")
-    # ChgAcc: current - prior
-    for c in range(5, 10):
-        prev = "D" if c == 5 else CL(c-1)
-        fval(ws, cf_rows["ChgAcc"], c, f"=BS!{CL(c)}{bs_rows['AccExp']}-BS!{prev}{bs_rows['AccExp']}")
-    # ChgRS:
-    for c in range(5, 10):
-        prev = "D" if c == 5 else CL(c-1)
-        fval(ws, cf_rows["ChgRS"], c, f"=BS!{CL(c)}{bs_rows['RevShare']}-BS!{prev}{bs_rows['RevShare']}")
-    # ChgDR:
-    for c in range(5, 10):
-        prev = "D" if c == 5 else CL(c-1)
-        fval(ws, cf_rows["ChgDR"], c, f"=BS!{CL(c)}{bs_rows['DefRev']}-BS!{prev}{bs_rows['DefRev']}")
-
+    # ── CFO ──
     cfo_r = r
     ws.cell(row=r, column=1, value="CFO 经营活动净现金").font = FB; sb(ws, r, 1, r, 9, fill=SUB, font=FB)
-    for j, v in enumerate(CF["CFO"]):
-        hval(ws, r, 2+j, v)
-    all_cf_op = list(cf_rows.values())
+    for j, v in enumerate(CF["CFO"]): hval(ws, r, 2+j, v)
     for c in range(5, 10):
-        fval(ws, r, c, "=" + "+".join(f"{CL(c)}{x}" for x in all_cf_op))
-    note(ws, r, "=NI+D&A+SBC+调整+WC变动")
-    R["cfo"] = cfo_r
+        fval(ws, r, c, "=" + "+".join(f"{CL(c)}{x}" for x in cf_op_rows))
+    note(ws, r, "=NI+D&A+SBC+非现金调整+WC变动"); R["cfo"] = cfo_r
     r += 2
 
-    # Investing
+    # ═══ Investing Activities ═══
     sec(ws, r, "Investing Activities 投资活动"); r += 1
+    cf_inv_rows = []
+
     capex_cf = r
     ws.cell(row=r, column=1, value="CapEx 资本支出").font = FN; ws.cell(row=r, column=1).border = BD
-    for j, v in enumerate(CF["CapEx"]):
-        hval(ws, r, 2+j, v)
-    for yr_j in range(5):
-        fval(ws, r, 5+yr_j, f"=-Assumptions!$I${capex_rows[yr_j]}")
-    note(ws, r, "2026=$180B per mgmt guidance")
-    R["capex_cf"] = capex_cf
+    for j, v in enumerate(CF["CapEx"]): hval(ws, r, 2+j, v)
+    for yr_j in range(5): fval(ws, r, 5+yr_j, f"=-Assumptions!$I${capex_rows[yr_j]}")
+    cf_inv_rows.append(r); note(ws, r, "2026=$180B per mgmt guidance"); R["capex_cf"] = capex_cf
     r += 1
+
     ws.cell(row=r, column=1, value="  CapEx / Revenue").font = FSM; ws.cell(row=r, column=1).border = BD
     for c in range(2, 10):
         fval(ws, r, c, f"=-{CL(c)}{capex_cf}/Consolidated_PL!{CL(c)}{rev_pl}", NP)
         ws.cell(row=r, column=c).font = FSM
-    r += 2
+    r += 1
 
+    # Chg NonMktSec (investment outflow)
+    ws.cell(row=r, column=1, value="Chg NonMkt Securities 非上市证券").font = FN; ws.cell(row=r, column=1).border = BD
+    for j, v in enumerate(CF["OtherInv"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"=-(BS!{CL(c)}{bs_rows['NonMktSec']}-BS!{prev}{bs_rows['NonMktSec']})")
+    cf_inv_rows.append(r); note(ws, r, "非上市证券净投资(增加为负)"); r += 1
+
+    # Chg Goodwill (acquisitions)
+    ws.cell(row=r, column=1, value="Acquisitions 收购 (Goodwill)").font = FN; ws.cell(row=r, column=1).border = BD
+    for j in range(3): hval(ws, r, 2+j, 0)
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"=-(BS!{CL(c)}{bs_rows['Goodwill']}-BS!{prev}{bs_rows['Goodwill']})")
+    cf_inv_rows.append(r); note(ws, r, "商誉增加=并购现金流出"); r += 1
+
+    # Chg OtherNCA
+    ws.cell(row=r, column=1, value="Other Investing 其他投资").font = FN; ws.cell(row=r, column=1).border = BD
+    for j in range(3): hval(ws, r, 2+j, 0)
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"=-(BS!{CL(c)}{bs_rows['OtherNCA']}-BS!{prev}{bs_rows['OtherNCA']})")
+    cf_inv_rows.append(r); note(ws, r, "无形资产/其他非流动"); r += 1
+
+    # Net MktSec activity
+    ws.cell(row=r, column=1, value="Net MktSec Activity 有价证券净投资").font = FN; ws.cell(row=r, column=1).border = BD
+    for j in range(3):
+        hval(ws, r, 2+j, CF["BuyMktSec"][j] + CF["SellMktSec"][j])
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"=-(BS!{CL(c)}{bs_rows['MktSec']}-BS!{prev}{bs_rows['MktSec']})")
+    cf_inv_rows.append(r); note(ws, r, "有价证券增加=现金流出(Base=0)"); r += 1
+
+    # CFI
+    cfi_r = r
+    ws.cell(row=r, column=1, value="CFI 投资活动净现金").font = FB; sb(ws, r, 1, r, 9, fill=SUB, font=FB)
+    for j, v in enumerate(CF["CFI"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10):
+        fval(ws, r, c, "=" + "+".join(f"{CL(c)}{x}" for x in cf_inv_rows))
+    note(ws, r, "=CapEx+证券+收购+其他"); r += 2
+
+    # FCF = CFO + CapEx
     fcf_r = r
     ws.cell(row=r, column=1, value="FCF 自由现金流 (=CFO+CapEx)").font = FB; sb(ws, r, 1, r, 9, fill=KEY, font=FB)
     for c in range(2, 10):
         fval(ws, r, c, f"={CL(c)}{cfo_r}+{CL(c)}{capex_cf}")
-    note(ws, r, "=CFO-|CapEx|")
-    R["fcf"] = fcf_r
+    note(ws, r, "=CFO-|CapEx| (资本配置前)"); R["fcf"] = fcf_r
     r += 1
-    ws.cell(row=r, column=1, value="  FCF Margin 自由现金流利率").font = FSM; ws.cell(row=r, column=1).border = BD
+    ws.cell(row=r, column=1, value="  FCF Margin 自由现金流率").font = FSM; ws.cell(row=r, column=1).border = BD
     for c in range(2, 10):
         fval(ws, r, c, f"={CL(c)}{fcf_r}/Consolidated_PL!{CL(c)}{rev_pl}", NP)
         ws.cell(row=r, column=c).font = FSM
     r += 2
 
-    # Financing
+    # ═══ Financing Activities ═══
     sec(ws, r, "Financing Activities 融资活动"); r += 1
+    cf_fin_rows = []
+
     bb_r = r
     ws.cell(row=r, column=1, value="Share Repurchases 股份回购").font = FN; ws.cell(row=r, column=1).border = BD
-    for j, v in enumerate(CF["Buyback"]):
-        hval(ws, r, 2+j, v)
-    for c in range(5, 10):
-        fval(ws, r, c, "=-Assumptions!$I$79")
-    note(ws, r, "链接自Assumptions回购假设")
-    r += 1
+    for j, v in enumerate(CF["Buyback"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10): fval(ws, r, c, "=-Assumptions!$I$79")
+    cf_fin_rows.append(r); note(ws, r, "链接自Assumptions回购假设"); r += 1
+
     div_cf = r
     ws.cell(row=r, column=1, value="Dividends Paid 股息支付").font = FN; ws.cell(row=r, column=1).border = BD
-    for j, v in enumerate(CF["Dividend"]):
-        hval(ws, r, 2+j, v)
+    for j, v in enumerate(CF["Dividend"]): hval(ws, r, 2+j, v)
     for c in range(5, 10):
         fval(ws, r, c, f"=-Assumptions!$I$80*Consolidated_PL!{CL(c)}{R['shares_pl']}")
-    note(ws, r, "=DPS×Diluted Shares")
+    cf_fin_rows.append(r); note(ws, r, "=-DPS×稀释股数"); r += 1
+
+    # StockNet Settlement (NEW)
+    stocknet_cf = r
+    ws.cell(row=r, column=1, value="Stock Net Settlement 股权净结算").font = FN; ws.cell(row=r, column=1).border = BD
+    for j, v in enumerate(CF["StockNet"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10):
+        fval(ws, r, c, f"=-Consolidated_PL!{CL(c)}{sbc_pl}*Assumptions!$I$93")
+    cf_fin_rows.append(r); note(ws, r, "=-SBC×结算率(RSU税代扣)"); r += 1
+
+    # Net Debt Issuance (NEW)
+    debt_cf = r
+    ws.cell(row=r, column=1, value="Net Debt Issuance 净债务融资").font = FN; ws.cell(row=r, column=1).border = BD
+    for j in range(3):
+        hval(ws, r, 2+j, CF["DebtIssue"][j] + CF["DebtRepay"][j])
+    for yr_j in range(5):
+        fval(ws, r, 5+yr_j, f"=Assumptions!$I${debt_rows[yr_j]}")
+    cf_fin_rows.append(r); note(ws, r, "链接自Assumptions融资计划"); r += 1
+
+    # CFF
+    cff_r = r
+    ws.cell(row=r, column=1, value="CFF 融资活动净现金").font = FB; sb(ws, r, 1, r, 9, fill=SUB, font=FB)
+    for j, v in enumerate(CF["CFF"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10):
+        fval(ws, r, c, "=" + "+".join(f"{CL(c)}{x}" for x in cf_fin_rows))
+    note(ws, r, "=回购+股息+股权结算+净融资"); r += 2
+
+    # ═══ Cash Reconciliation (core 3-statement link) ═══
+    sec(ws, r, "Cash Reconciliation 现金勾稽 (→ BS!Cash)"); r += 1
+
+    net_chg_r = r
+    ws.cell(row=r, column=1, value="Net Change in Cash 现金净变动").font = FB; ws.cell(row=r, column=1).border = BD
+    for c in range(2, 10):
+        fval(ws, r, c, f"={CL(c)}{cfo_r}+{CL(c)}{cfi_r}+{CL(c)}{cff_r}")
+    note(ws, r, "=CFO+CFI+CFF"); r += 1
+
+    beg_cash_r = r
+    ws.cell(row=r, column=1, value="Beginning Cash 期初现金").font = FN; ws.cell(row=r, column=1).border = BD
+    hval(ws, r, 3, BS_DATA["Cash"][0])  # 2024 beginning = 2023 ending
+    hval(ws, r, 4, BS_DATA["Cash"][1])  # 2025 beginning = 2024 ending
+    for c in range(5, 10):
+        prev = "D" if c == 5 else CL(c-1)
+        fval(ws, r, c, f"={prev}{r+1}")  # = prior Ending Cash
+    note(ws, r, "=上期末现金"); r += 1
+
+    end_cash_r = r
+    ws.cell(row=r, column=1, value="Ending Cash 期末现金 ★").font = FB
+    sb(ws, r, 1, r, 9, fill=KEY, font=FB)
+    for j, v in enumerate(BS_DATA["Cash"]): hval(ws, r, 2+j, v)
+    for c in range(5, 10):
+        fval(ws, r, c, f"={CL(c)}{beg_cash_r}+{CL(c)}{net_chg_r}")
+    note(ws, r, "=期初+净变动 → 链接至BS!Cash"); R["end_cash"] = end_cash_r
+    r += 2
+
+    # BS Balance integrity check (should = 0 if 3-stmt linkage is correct)
+    ws.cell(row=r, column=1, value="验证: BS Balance Check (Assets-L&E)").font = FB; ws.cell(row=r, column=1).border = BD
+    for c in range(5, 10):
+        fval(ws, r, c, f"=BS!{CL(c)}{total_assets_r}-BS!{CL(c)}{total_le_r}")
+    sb(ws, r, 1, r, 9, fill=ERR, font=FB)
+    note(ws, r, "应为0 → 证明三表完美联动")
 
     ws.freeze_panes = "B4"
     add_legend(ws, r + 3)
+
+    # ── Link BS Cash to CF Ending Cash (3-statement linkage core) ──
+    ws_bs = wb["BS"]
+    for c in range(5, 10):
+        lval(ws_bs, bs_rows["Cash"], c, f"=Cash_Flow!{CL(c)}{end_cash_r}")
 
     # ═══════════════════════════════════════════════════
     #  TAB 9: DCF
